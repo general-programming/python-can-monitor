@@ -6,6 +6,8 @@ import serial
 import time
 
 from six import raise_from
+from panda import Panda
+
 
 class InvalidFrame(Exception):
     pass
@@ -135,3 +137,42 @@ class CandumpHandler(SourceHandler):
             raise InvalidFrame("Can't decode message '{}': '{}'".format(line, err))
 
         return can_id, can_data
+
+
+class PandaHandler(SourceHandler):
+
+    def __init__(self):
+        self.panda = Panda()
+        self.message_queue = []
+
+    def open(self):
+        pass
+
+    def close(self):
+        self.panda.close()
+
+    def get_message(self):
+        if len(self.message_queue) == 0:
+            self._panda_queue()
+
+        try:
+            message = self.message_queue.pop()
+        except IndexError:
+            raise InvalidFrame("No frame to pop from the queue.")
+
+        return self._parse(message)
+
+    def _panda_queue(self):
+        """Read messages from the panda, add them to the queue, and pop the latest item in the queue."""
+        can_recv = self.panda.can_recv()
+
+        for can_message in can_recv:
+            self.message_queue.append(can_message)
+
+    @staticmethod
+    def _parse(message):
+        # [frame id, junk, data, bus ID]
+        frame_id = message[0]
+        data = message[2]
+
+        return frame_id, data

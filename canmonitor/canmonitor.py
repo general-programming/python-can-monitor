@@ -182,6 +182,7 @@ def run():
     parser.add_argument('serial_device', type=str, nargs='?')
     parser.add_argument('baud_rate', type=int, default=115200, nargs='?',
                         help='Serial baud rate in bps (default: 115200)')
+    parser.add_argument('--panda', type=str, nargs='?', help='Use Panda device for CAN data.')
     parser.add_argument('-f', '--candump-file', metavar='CANDUMP_FILE', help="File (of 'candump' format) to read from")
     parser.add_argument('-s', '--candump-speed', type=float, metavar='CANDUMP_SPEED', help="Speed scale of file read")
 
@@ -196,8 +197,8 @@ def run():
     args = parser.parse_args()
 
     # checks arguments
-    if not args.serial_device and not args.candump_file:
-        print("Please specify serial device or file name")
+    if not args.serial_device and not args.candump_file and not args.panda:
+        print("Please specify serial device, panda, or file name")
         print()
         parser.print_help()
         return
@@ -218,6 +219,8 @@ def run():
 
     if args.serial_device:
         source_handler = SerialHandler(args.serial_device, baudrate=args.baud_rate)
+    elif args.panda:
+        source_handler = PandaHandler()
     elif args.candump_file:
         source_handler = CandumpHandler(args.candump_file, args.candump_speed)
 

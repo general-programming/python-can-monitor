@@ -5,6 +5,7 @@ import serial
 
 import time
 
+from six import raise_from
 
 class InvalidFrame(Exception):
     pass
@@ -78,7 +79,7 @@ class SerialHandler(SourceHandler):
             data = unhexlify(hex_data)
 
         except (IndexError, ValueError) as exc:
-            raise InvalidFrame("Invalid frame {}".format(line)) from exc
+            raise_from(InvalidFrame("Invalid frame {}".format(line)), exc)
 
         if len(data) != frame_length:
             raise InvalidFrame("Wrong frame length or invalid data: {}".format(line))

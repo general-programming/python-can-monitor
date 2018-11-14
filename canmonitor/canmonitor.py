@@ -6,8 +6,10 @@ import sys
 import threading
 import traceback
 
-from .source_handler import CandumpHandler, InvalidFrame, SerialHandler
-
+try:
+    from .source_handler import CandumpHandler, InvalidFrame, SerialHandler, PandaHandler
+except ValueError:
+    from source_handler import CandumpHandler, InvalidFrame, SerialHandler, PandaHandler
 
 should_redraw = threading.Event()
 stop_reading = threading.Event()

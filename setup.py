@@ -26,6 +26,7 @@ setuptools.setup(
     install_requires=[
         'pyserial==3.2.1',
         'six==1.11.0',
+        'pandacan==0.0.8',
     ],
     classifiers=[
         "Development Status :: 3 - Alpha",

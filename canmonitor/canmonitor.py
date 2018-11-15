@@ -3,6 +3,7 @@
 import argparse
 import curses
 import sys
+import time
 import threading
 import traceback
 
@@ -19,6 +20,24 @@ can_messages_lock = threading.Lock()
 
 thread_exception = None
 
+"""
+Original P1kachu comment:
+# This whole script is hacky
+# Please protect your eyes with something less violent,
+# like... acid idk, if you are willing to read it anyway
+
+Nepeat comment:
+I should have listened to those comments but hey,
+it works for pluggable CAN backends now?
+"""
+DELTA_TIME_TRIGGER = 0.25
+RESET_COLOR_COUNTER_VALUE = 150
+
+FRAME_ID_NEW_MESSAGE = 0 # This frame ID sent a new message, so save it
+FRAME_ID_OLD_MESSAGE = 1 # Save the previous message also, to compare
+FRAME_ID_LAST_CHANGE = 2 # Time at which the last modification occured
+FRAME_ID_MESSAGE_CHANGED = 3 # Did a new message appear after last refresh ?
+FRAME_ID_COLOR_COUNTER = 4 # How many iteration should we color the message for
 
 def reading_loop(source_handler, blacklist):
     """Background thread for reading."""
@@ -36,12 +55,23 @@ def reading_loop(source_handler, blacklist):
 
             # Add the frame to the can_messages dict and tell the main thread to refresh its content
             with can_messages_lock:
-                can_messages[frame_id] = data
+                try:
+                    can_messages[frame_id] = (
+                        data,
+                        can_messages[frame_id][FRAME_ID_NEW_MESSAGE],
+                        (float(time.time()) - can_messages[frame_id][FRAME_ID_LAST_CHANGE]),
+                        True,
+                        can_messages[frame_id][FRAME_ID_COLOR_COUNTER]
+                    )
+                except KeyError:
+                    can_messages[frame_id] = (data, [0], DELTA_TIME_TRIGGER, True, 0)
+
                 should_redraw.set()
 
         stop_reading.wait()
 
-    except:
+    except Exception as e:
+        print(e)
         if not stop_reading.is_set():
             # Only log exception if we were not going to stop the thread
             # When quitting, the main thread calls close() on the serial device
@@ -60,6 +90,12 @@ def init_window(stdscr):
     root_window = stdscr.derwin(max_y, max_x, 0, 0)
 
     root_window.box()
+
+    # Initiate the colors.
+    curses.start_color()
+    curses.init_pair(1, 3, 4) # Marine Blue color_pair(1)
+    curses.init_pair(2, 5, 6) # Turquoise Blue color_pair(2)
+    curses.init_pair(3, 7, 8) # Gray color_pair(3)
 
     return root_window
 
@@ -129,18 +165,52 @@ def main(stdscr, reading_thread):
             # Make sure we don't read the can_messages dict while it's being written to in the reading thread
             with can_messages_lock:
                 for frame_id in sorted(can_messages.keys()):
-                    msg = can_messages[frame_id]
+                    msg = can_messages[frame_id][FRAME_ID_NEW_MESSAGE]
 
                     msg_bytes = format_data_hex(msg)
 
                     msg_str = format_data_ascii(msg)
+
+                    msg_color = None
+                    update_color_counter = False
+
+                    # Determine color of the bytes
+                    if can_messages[frame_id][FRAME_ID_COLOR_COUNTER] > 0:
+                        msg_color = curses.color_pair(3)
+
+                    if (
+                        can_messages[frame_id][FRAME_ID_MESSAGE_CHANGED] and
+                        can_messages[frame_id][FRAME_ID_LAST_CHANGE] >= DELTA_TIME_TRIGGER
+                    ):
+                        if len(can_messages[frame_id][FRAME_ID_OLD_MESSAGE]) != len(can_messages[frame_id][FRAME_ID_NEW_MESSAGE]):
+                            msg_color = curses.color_pair(1)
+                            update_color_counter = True
+                        else:
+                            for i, b in enumerate(can_messages[frame_id][FRAME_ID_NEW_MESSAGE]):
+                                if b != can_messages[frame_id][FRAME_ID_OLD_MESSAGE][i]:
+                                    msg_color = curses.color_pair(2)
+                                    update_color_counter = True
+                                    break
+
+                    new_timestamp = float(time.time()) if msg_color else float(time.time()) + can_messages[frame_id][FRAME_ID_LAST_CHANGE]
+
+                    can_messages[frame_id] = (
+                        can_messages[frame_id][FRAME_ID_NEW_MESSAGE],
+                        can_messages[frame_id][FRAME_ID_OLD_MESSAGE],
+                        new_timestamp,
+                        False,
+                        RESET_COLOR_COUNTER_VALUE if update_color_counter else can_messages[frame_id][FRAME_ID_COLOR_COUNTER] - 1
+                    )
 
                     # print frame ID in decimal and hex
                     win.addstr(row, id_column_start + current_column * column_width, '%s' % str(frame_id).ljust(5))
                     win.addstr(row, id_column_start + 5 + current_column * column_width, '%X'.ljust(5) % frame_id)
 
                     # print frame bytes
-                    win.addstr(row, bytes_column_start + current_column * column_width, msg_bytes.ljust(23))
+                    if msg_color:
+                        win.addstr(row, bytes_column_start + current_column * column_width, msg_bytes.ljust(23), msg_color)
+                    else:
+                        win.addstr(row, bytes_column_start + current_column * column_width, msg_bytes.ljust(23))
 
                     # print frame text
                     win.addstr(row, text_column_start + current_column * column_width, msg_str.ljust(8))
